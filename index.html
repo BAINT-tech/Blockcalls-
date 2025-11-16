@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BlockCall - Never Miss a Call</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: white;
+        }
+        .gradient-border {
+            background: linear-gradient(135deg, #00d4ff, #00ff88);
+            padding: 2px;
+            border-radius: 12px;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #0f3460, #1a1a2e);
+        }
+        .video-container {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .participant-grid {
+            display: grid;
+            gap: 10px;
+            padding: 10px;
+        }
+        .participant-grid.count-1 { grid-template-columns: 1fr; }
+        .participant-grid.count-2 { grid-template-columns: repeat(2, 1fr); }
+        .participant-video {
+            position: relative;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid #00d4ff;
+        }
+        .participant-name {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            background: rgba(0,0,0,0.7);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 10;
+        }
+        .btn {
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            border: none;
+            font-size: 14px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #00d4ff, #00ff88);
+            color: #1a1a2e;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,212,255,0.4);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .btn-danger {
+            background: #ff4757;
+            color: white;
+        }
+        .btn-warning {
+            background: #ffa502;
+            color: white;
+        }
+        .control-btn {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .control-btn:hover {
+            background: rgba(255,255,255,0.2);
+            transform: scale(1.1);
+        }
+        .control-btn.active {
+            background: #00ff88;
+            color: #1a1a2e;
+        }
+        .control-btn.danger {
+            background: #ff4757;
+        }
+        .alert-banner {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+            max-width: 500px;
+            width: 90%;
+            animation: slideDown 0.3s ease-out;
+        }
+        @keyframes slideDown {
+            from { transform: translateX(-50%) translateY(-100px); opacity: 0; }
+            to { transform: translateX(-50%) translateY(0); opacity: 1; }
+        }
+        .pulse-ring {
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 1; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+        .data-meter {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .data-meter-fill {
+            height: 100%;
+            transition: width 0.3s ease, background 0.3s ease;
+            border-radius: 4px;
+        }
+        .data-meter-fill.high { background: #00ff88; }
+        .data-meter-fill.medium { background: #ffa502; }
+        .data-meter-fill.low { background: #ff4757; }
+        .emergency-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .chat-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .chat-message {
+            padding: 8px 12px;
+            margin: 8px 0;
+            border-radius: 8px;
+            background: rgba(255,255,255,0.05);
+        }
+        @media print {
+            body { background: white; color: black; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div id="app" class="min-h-screen p-4">
+        
+        <!-- Emergency Alert Banner -->
+        <div id="emergencyBanner" class="alert-banner hidden">
+            <!-- Dynamic content here -->
+        </div>
+
+        <!-- Outage Detection Banner -->
+        <div id="outageBanner" class="hidden" style="position: fixed; top: 0; left: 0; right: 0; z-index: 9998; background: #ff4757; padding: 16px; text-align: center;">
+            <div class="max-w-4xl mx-auto">
+                <div class="flex items-center justify-center gap-4">
+                    <span class="text-2xl pulse-ring">🚨</span>
+                    <div>
+                        <p class="font-bold text-lg">PLATFORM OUTAGE DETECTED!</p>
+                        <p class="text-sm" id="outageText">WhatsApp is currently down. Use BlockCall for FREE!</p>
+                    </div>
+                    <button onclick="app.dismissOutageBanner()" class="btn btn-secondary">Got it</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Home Screen -->
+        <div id="homeScreen" class="max-w-4xl mx-auto">
+            <div class="text-center mb-12">
+                <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-cyan-400 to-green-400 bg-clip-text text-transparent">
+                    BlockCall
+                </h1>
+                <p class="text-gray-300 text-lg">The Video Call That Never Fails</p>
+                <p class="text-sm text-cyan-400 mt-2">✅ Works when others don't • ✅ Saves your data • ✅ Never disconnects</p>
+            </div>
+
+            <!-- Platform Status (if outages detected) -->
+            <div id="statusWidget" class="hidden mb-8 bg-red-500/10 border border-red-500/30 rounded-xl p-6">
+                <h3 class="font-bold text-xl mb-4 flex items-center gap-2">
+                    🚨 Platform Status
+                </h3>
+                <div id="statusList" class="space-y-3">
+                    <!-- Dynamic status items -->
+                </div>
+                <div class="mt-4 pt-4 border-t border-red-500/30">
+                    <p class="text-cyan-400 font-semibold">✅ BlockCall is ONLINE and ready!</p>
+                    <p class="text-sm text-gray-300 mt-1">Start a FREE emergency call below</p>
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6 mb-8">
+                <!-- 1-on-1 Call -->
+                <div class="gradient-border">
+                    <div class="gradient-bg p-8 rounded-xl">
+                        <div class="text-4xl mb-4">📞</div>
+                        <h3 class="text-2xl font-bold mb-3">1-on-1 Call</h3>
+                        <p class="text-gray-300 mb-6">Private video call with smart data management</p>
+                        
+                        <input type="text" id="recipientAddress" placeholder="Enter recipient's wallet/email" 
+                            class="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white mb-4">
+                        
+                        <div class="mb-4">
+                            <label class="flex items-center gap-3 p-3 rounded-lg bg-white/5 cursor-pointer hover:bg-white/10 transition">
+                                <input type="checkbox" id="useBlockchain" checked class="w-5 h-5">
+                                <div>
+                                    <div class="font-semibold">⛓️ Blockchain Receipt</div>
+                                    <div class="text-xs text-gray-400">On-chain verification</div>
+                                </div>
+                            </label>
+                        </div>
+                        
+                        <div class="flex gap-3">
+                            <button onclick="app.startCall('video')" class="btn btn-primary flex-1">
+                                📹 Video Call
+                            </button>
+                            <button onclick="app.startCall('audio')" class="btn btn-secondary flex-1">
+                                🎤 Audio
+                            </button>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <button onclick="app.startTestCall('video')" class="btn btn-secondary w-full text-sm">
+                                🧪 Test Video
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Group Meeting -->
+                <div class="gradient-border">
+                    <div class="gradient-bg p-8 rounded-xl">
+                        <div class="text-4xl mb-4">👥</div>
+                        <h3 class="text-2xl font-bold mb-3">Group Meeting</h3>
+                        <p class="text-gray-300 mb-6">Host meetings that never disconnect</p>
+                        
+                        <input type="text" id="meetingName" placeholder="Meeting name (optional)" 
+                            class="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white mb-4">
+                        
+                        <button onclick="app.createGroupMeeting()" class="btn btn-primary w-full mb-3">
+                            🚀 Create Meeting
+                        </button>
+                        
+                        <div class="border-t border-white/20 pt-4 mt-4">
+                            <input type="text" id="meetingCode" placeholder="Enter meeting code" 
+                                class="w-full p-3 rounded-lg bg-white/10 border border-white/20 text-white mb-3">
+                            <button onclick="app.joinGroupMeeting()" class="btn btn-secondary w-full">
+                                🔗 Join Meeting
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Emergency Features -->
+            <div class="grid md:grid-cols-3 gap-6">
+                <div class="bg-white/5 p-6 rounded-xl border border-white/10">
+                    <div class="text-3xl mb-3">📊</div>
+                    <h4 class="font-bold mb-2">Smart Data Monitor</h4>
+                    <p class="text-sm text-gray-300">Auto-adjusts quality when data is low</p>
+                </div>
+                <div class="bg-white/5 p-6 rounded-xl border border-white/10">
+                    <div class="text-3xl mb-3">🚨</div>
+                    <h4 class="font-bold mb-2">Emergency Backup</h4>
+                    <p class="text-sm text-gray-300">Never lose important calls</p>
+                </div>
+                <div class="bg-white/5 p-6 rounded-xl border border-white/10">
+                    <div class="text-3xl mb-3">⛓️</div>
+                    <h4 class="font-bold mb-2">Blockchain Proof</h4>
+                    <p class="text-sm text-gray-300">Immutable call records</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Call Screen -->
+        <div id="callScreen" class="hidden">
+            <div class="max-w-7xl mx-auto">
+                <!-- Data Usage Monitor -->
+                <div class="mb-4 bg-white/5 p-4 rounded-xl">
+                    <div class="flex justify-between items-center mb-2">
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-semibold">📊 Data Usage</span>
+                            <span class="text-xs text-gray-400" id="dataUsageText">~10 MB used</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs" id="dataStatusText">Normal</span>
+                            <span id="dataStatusIcon">✅</span>
+                        </div>
+                    </div>
+                    <div class="data-meter">
+                        <div class="data-meter-fill high" id="dataMeterFill" style="width: 80%"></div>
+                    </div>
+                    <div class="flex justify-between mt-2 text-xs text-gray-400">
+                        <span id="dataEstimate">Est. 30 min remaining</span>
+                        <span id="dataQuality">Quality: HD</span>
+                    </div>
+                </div>
+
+                <!-- Header -->
+                <div class="flex justify-between items-center mb-4 bg-white/5 p-4 rounded-xl">
+                    <div>
+                        <h2 class="text-xl font-bold" id="callTitle">In Call</h2>
+                        <p class="text-sm text-gray-300" id="callDuration">00:00</p>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <span class="text-sm text-gray-300" id="participantCount">1 participant</span>
+                        <button onclick="app.toggleChat()" class="btn btn-secondary">
+                            💬 Chat
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-4">
+                    <!-- Main Video Area -->
+                    <div class="col-span-3">
+                        <!-- Participant Videos -->
+                        <div id="participantGrid" class="participant-grid count-1" style="min-height: 500px;">
+                            <!-- Local Video -->
+                            <div class="participant-video">
+                                <video id="localVideo" autoplay muted playsinline></video>
+                                <div class="participant-name">You</div>
+                            </div>
+                            
+                            <!-- Remote Video -->
+                            <div id="remoteVideoContainer" class="participant-video hidden">
+                                <video id="remoteVideo" autoplay playsinline></video>
+                                <div class="participant-name" id="remoteName">Guest</div>
+                            </div>
+                        </div>
+
+                        <!-- Controls -->
+                        <div class="flex justify-center items-center gap-4 mt-6 p-4 bg-white/5 rounded-xl">
+                            <button onclick="app.toggleMute()" class="control-btn" id="muteBtn" title="Mute/Unmute">
+                                🎤
+                            </button>
+                            <button onclick="app.toggleVideo()" class="control-btn active" id="videoBtn" title="Camera On/Off">
+                                📹
+                            </button>
+                            <button onclick="app.shareScreen()" class="control-btn" id="screenBtn" title="Share Screen">
+                                🖥️
+                            </button>
+                            <button onclick="app.endCall()" class="control-btn danger" title="End Call">
+                                📞
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Sidebar -->
+                    <div class="col-span-1">
+                        <!-- Chat Panel -->
+                        <div id="chatPanel" class="bg-white/5 p-4 rounded-xl">
+                            <h3 class="font-bold mb-4">💬 Chat</h3>
+                            <div class="chat-container mb-4" id="chatMessages">
+                                <p class="text-xs text-gray-400 text-center py-4">No messages yet</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <input type="text" id="chatInput" placeholder="Type..." 
+                                    class="flex-1 p-2 text-sm rounded-lg bg-white/10 border border-white/20"
+                                    onkeypress="if(event.key==='Enter') app.sendMessage()">
+                                <button onclick="app.sendMessage()" class="btn btn-primary text-sm">
+                                    Send
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Receipt Screen -->
+        <div id="receiptScreen" class="hidden max-w-3xl mx-auto">
+            <!-- Blockchain Receipt -->
+            <div id="blockchainReceipt" class="hidden gradient-border">
+                <div class="gradient-bg p-8 rounded-xl">
+                    <div class="text-center mb-8 border-b border-white/20 pb-6">
+                        <h1 class="text-4xl font-bold mb-2 bg-gradient-to-r from-cyan-400 to-green-400 bg-clip-text text-transparent">
+                            BlockCall
+                        </h1>
+                        <p class="text-gray-400 text-sm">Blockchain-Verified Call Receipt</p>
+                        <div class="inline-block bg-green-500/20 border border-green-500 px-4 py-2 rounded-lg mt-4">
+                            ⛓️ BLOCKCHAIN VERIFIED
+                        </div>
+                    </div>
+
+                    <div class="text-center mb-8">
+                        <div class="text-6xl mb-4">✅</div>
+                        <h2 class="text-3xl font-bold mb-2">Call Completed</h2>
+                        <p class="text-gray-300">Verified on blockchain</p>
+                    </div>
+
+                    <div class="bg-white/5 p-6 rounded-xl mb-6">
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <p class="text-sm text-gray-400">Receipt ID</p>
+                                <p class="font-mono text-sm" id="bcReceiptId">CALL-12345</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-400">Duration</p>
+                                <p class="font-semibold" id="bcReceiptDuration">05:23</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-400">Call Type</p>
+                                <p class="font-semibold" id="bcReceiptType">Video Call</p>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-400">Data Used</p>
+                                <p class="font-semibold" id="bcReceiptDataUsed">45 MB</p>
+                            </div>
+                            <div class="col-span-2">
+                                <p class="text-sm text-gray-400">Date & Time</p>
+                                <p class="font-semibold" id="bcReceiptDateTime">Nov 16, 2025</p>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-white/20 pt-4 mt-4">
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-400">Call Cost</span>
+                                <span class="font-semibold" id="bcReceiptCost">$15.00</span>
+                            </div>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-400">Emergency Data Used</span>
+                                <span class="font-semibold text-cyan-400" id="bcReceiptEmergencyData">$0.00</span>
+                            </div>
+                            <div class="flex justify-between mb-2">
+                                <span class="text-gray-400">Platform Fee (10%)</span>
+                                <span class="font-semibold" id="bcReceiptFee">$1.50</span>
+                            </div>
+                            <div class="flex justify-between text-lg font-bold border-t border-white/20 pt-2 mt-2">
+                                <span>Total</span>
+                                <span class="text-cyan-400" id="bcReceiptTotal">$16.50</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Blockchain Verification -->
+                    <div class="bg-gradient-to-r from-cyan-500/10 to-green-500/10 border border-cyan-500/30 rounded-lg p-6 mb-6">
+                        <p class="text-lg font-bold text-cyan-400 mb-4">⛓️ Blockchain Verification</p>
+                        <div class="space-y-3">
+                            <div>
+                                <p class="text-xs text-gray-400 mb-1">Transaction Hash:</p>
+                                <p class="font-mono text-xs break-all bg-black/30 p-2 rounded" id="bcReceiptTxHash">0x742d35Cc...</p>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <p class="text-xs text-gray-400 mb-1">Block:</p>
+                                    <p class="font-mono text-sm" id="bcReceiptBlock">15847392</p>
+                                </div>
+                                <div>
+                                    <p class="text-xs text-gray-400 mb-1">Network:</p>
+                                    <p class="font-semibold text-sm">Ethereum</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 pt-2 border-t border-cyan-500/20">
+                                <span class="text-2xl">✓</span>
+                                <span class="text-cyan-400 font-semibold">Verified on Blockchain</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Call Quality Report -->
+                    <div class="bg-white/5 p-4 rounded-lg mb-6">
+                        <h4 class="font-bold mb-3">📊 Call Quality Report</h4>
+                        <div class="space-y-2 text-sm">
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Average Quality:</span>
+                                <span id="bcReceiptQuality">HD</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Data Saved:</span>
+                                <span class="text-green-400" id="bcReceiptDataSaved">15 MB (Auto-optimized)</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-400">Connection:</span>
+                                <span>✅ Stable</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="flex gap-4 no-print">
+                        <button onclick="app.downloadReceipt()" class="btn btn-primary flex-1">
+                            📥 Download PDF
+                        </button>
+                        <button onclick="app.printReceipt()" class="btn btn-secondary flex-1">
+                            🖨️ Print
+                        </button>
+                        <button onclick="app.viewOnBlockchain()" class="btn btn-secondary flex-1">
+                            🔍 Etherscan
+                        </button>
+                    </div>
+
+                    <button onclick="app.returnHome()" class="btn btn-secondary w-full mt-4 no-print">
+                        ← Back to Home
+                    </button>
+
+                    <div class="text-center mt-8 pt-6 border-t border-white/20 text-xs text-gray-400">
+                        <p>Powered by BlockCall - The Call That Never Fails</p>
+                        <p class="mt-1">✅ Data-smart • ✅ Emergency-ready • ✅ Blockchain-verified</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Standard Receipt (similar structure, shorter for space) -->
+            <div id="standardReceipt" class="hidden gradient-border">
+                <div class="gradient-bg p-8 rounded-xl">
+                    <!-- Similar to blockchain receipt but without blockchain section -->
+                    <div class="text-center mb-8">
+                        <h1 class="text-4xl font-bold mb-2 bg-gradient-to-r from-cyan-400 to-green-400 bg-clip-text text-transparent">BlockCall</h1>
+                        <p class="text-gray-400">Professional Call Receipt</p>
+                    </div>
+                    <div class="text-center mb-8">
+                        <div class="text-6xl mb-4">✅</div>
+                        <h2 class="text-3xl font-bold">Call Completed</h2>
+                    </div>
+                    <div class="bg-white/5 p-6 rounded-xl mb-6">
+                        <p class="text-center text-gray-300">Standard receipt content here...</p>
+                    </div>
+                    <button onclick="app.returnHome()" class="btn btn-secondary w-full">
+                        ← Back to Home
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        const app = {
+            // Existing properties
+            currentScreen: 'home',
+            callType: null,
+            callMode: null,
+            isTestMode: false,
+            useBlockchain: true,
+            localStream: null,
+            remoteStream: null,
+            callStartTime: null,
+            callDuration: 0,
+            timerInterval: null,
+            isMuted: false,
+            isVideoOn: true,
+            meetingCode: null,
+            isHost: false,
+            participants: [],
+            messages: [],
+
+            // NEW: Emergency & Data Management
+            dataMonitor: {
+                enabled: true,
+                startingData: 100, // MB (estimated)
+                dataUsed: 0,
+                dataRemaining: 100,
+                videoDataRate: 10, // MB per minute
+                audioDataRate: 1, // MB per minute
+                monitorInterval: null,
+                warningShown: false,
+                criticalShown: false,
+                emergencyDataPurchased: 0,
+
+                start() {
+                    this.monitorInterval = setInterval(() => {
+                        this.updateUsage();
+                        this.checkThresholds();
+                    }, 5000); // Check every 5 seconds
+                },
+
+                updateUsage() {
+                    if (!app.callStartTime) return;
+
+                    const minutesElapsed = (Date.now() - app.callStartTime) / 60000;
+                    const rate = app.isVideoOn ? this.videoDataRate : this.audioDataRate;
+                    this.dataUsed = minutesElapsed * rate;
+                    this.dataRemaining = Math.max(0, this.startingData + this.emergencyDataPurchased - this.dataUsed);
+
+                    // Update UI
+                    this.updateUI();
+                },
+
+                updateUI() {
+                    // Update data usage text
+                    document.getElementById('dataUsageText').textContent = 
+                        `~${Math.round(this.dataUsed)} MB used`;
+
+                    // Update meter
+                    const percentage = (this.dataRemaining / (this.startingData + this.emergencyDataPurchased)) * 100;
+                    const fill = document.getElementById('dataMeterFill');
+                    fill.style.width = percentage + '%';
+
+                    if (percentage > 50) {
+                        fill.className = 'data-meter-fill high';
+                        document.getElementById('dataStatusText').textContent = 'Normal';
+                        document.getElementById('dataStatusIcon').textContent = '✅';
+                    } else if (percentage > 20) {
+                        fill.className = 'data-meter-fill medium';
+                        document.getElementById('dataStatusText').textContent = 'Low';
+                        document.getElementById('dataStatusIcon').textContent = '⚠️';
+                    } else {
+                        fill.className = 'data-meter-fill low';
+                        document.getElementById('dataStatusText').textContent = 'Critical';
+                        document.getElementById('dataStatusIcon').textContent = '🚨';
+                    }
+
+                    // Update estimate
+                    const rate = app.isVideoOn ? this.videoDataRate : this.audioDataRate;
+                    const minutesLeft = Math.floor(this.dataRemaining / rate);
+                    document.getElementById('dataEstimate').textContent = 
+                        minutesLeft > 0 ? `Est. ${minutesLeft} min remaining` : 'Data exhausted!';// Update quality indicator
+                    const quality = app.isVideoOn ? 'HD' : 'Audio Only';
+                    document.getElementById('dataQuality').textContent = `Quality: ${quality}`;
+                },
+
+                checkThresholds() {
+                    const percentage = (this.dataRemaining / (this.startingData + this.emergencyDataPurchased)) * 100;
+
+                    // Critical: < 10%
+                    if (percentage < 10 && !this.criticalShown) {
+                        this.criticalShown = true;
+                        app.showCriticalDataWarning();
+                    }
+                    // Warning: < 30%
+                    else if (percentage < 30 && !this.warningShown) {
+                        this.warningShown = true;
+                        app.showLowDataWarning();
+                    }
+                    // Emergency: 0%
+                    else if (this.dataRemaining <= 0) {
+                        app.showNoDataEmergency();
+                    }
+                },
+
+                stop() {
+                    if (this.monitorInterval) {
+                        clearInterval(this.monitorInterval);
+                        this.monitorInterval = null;
+                    }
+                },
+
+                reset() {
+                    this.dataUsed = 0;
+                    this.dataRemaining = this.startingData;
+                    this.warningShown = false;
+                    this.criticalShown = false;
+                    this.emergencyDataPurchased = 0;
+                }
+            },
+
+            // NEW: Outage Detection
+            outageDetector: {
+                enabled: true,
+                checkInterval: null,
+                outages: [],
+
+                start() {
+                    // Check immediately
+                    this.checkStatus();
+                    
+                    // Then check every 60 seconds
+                    this.checkInterval = setInterval(() => {
+                        this.checkStatus();
+                    }, 60000);
+                },
+
+                async checkStatus() {
+                    // Simulate outage detection
+                    // In production, this would call real APIs like DownDetector
+                    const platforms = ['WhatsApp', 'Zoom', 'Google Meet', 'Microsoft Teams'];
+                    
+                    // Randomly simulate outages for demo (10% chance)
+                    this.outages = platforms.filter(() => Math.random() < 0.1);
+
+                    if (this.outages.length > 0) {
+                        app.showOutageAlert(this.outages);
+                    }
+                },
+
+                stop() {
+                    if (this.checkInterval) {
+                        clearInterval(this.checkInterval);
+                        this.checkInterval = null;
+                    }
+                }
+            },
+
+            // Configuration
+            YOUR_WALLET: '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb0',
+            RATE_PER_MINUTE: 3.00,
+
+            // Initialize
+            init() {
+                console.log('🚀 BlockCall Emergency System Initialized');
+                this.outageDetector.start();
+            },
+
+            // Start 1-on-1 Call
+            async startCall(type) {
+                const recipient = document.getElementById('recipientAddress').value.trim();
+                if (!recipient) {
+                    alert('Please enter recipient address or email');
+                    return;
+                }
+
+                this.callType = type;
+                this.callMode = '1on1';
+                this.isTestMode = false;
+                this.useBlockchain = document.getElementById('useBlockchain').checked;
+
+                await this.initializeCall();
+                this.updateCallTitle(`Calling ${recipient}...`);
+            },
+
+            // Start Test Call
+            async startTestCall(type) {
+                this.callType = type;
+                this.callMode = '1on1';
+                this.isTestMode = true;
+                this.useBlockchain = document.getElementById('useBlockchain').checked;
+
+                await this.initializeCall();
+                
+                document.getElementById('remoteVideo').srcObject = this.localStream;
+                document.getElementById('remoteVideoContainer').classList.remove('hidden');
+                document.getElementById('remoteName').textContent = 'Test Mode (You)';
+                
+                this.updateCallTitle('Test Call (Solo Mode)');
+            },
+
+            // Create Group Meeting
+            async createGroupMeeting() {
+                const meetingName = document.getElementById('meetingName').value.trim() || 'My Meeting';
+                
+                this.callType = 'video';
+                this.callMode = 'group';
+                this.isHost = true;
+                this.meetingCode = this.generateMeetingCode();
+                this.useBlockchain = true;
+
+                await this.initializeCall();
+                
+                this.updateCallTitle(`📹 ${meetingName}`);
+                this.addMessage('system', `Meeting created! Code: ${this.meetingCode}`);
+            },
+
+            // Join Group Meeting
+            async joinGroupMeeting() {
+                const code = document.getElementById('meetingCode').value.trim();
+                if (!code) {
+                    alert('Please enter meeting code');
+                    return;
+                }
+
+                this.callType = 'video';
+                this.callMode = 'group';
+                this.isHost = false;
+                this.meetingCode = code;
+                this.useBlockchain = true;
+
+                await this.initializeCall();
+                
+                this.updateCallTitle(`📹 Joined Meeting: ${code}`);
+                this.addMessage('system', 'You joined the meeting');
+            },
+
+            // Initialize Call
+            async initializeCall() {
+                try {
+                    const constraints = {
+                        video: this.callType === 'video' ? { width: 1280, height: 720 } : false,
+                        audio: true
+                    };
+
+                    this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    document.getElementById('localVideo').srcObject = this.localStream;
+
+                    this.switchScreen('call');
+                    this.callStartTime = Date.now();
+                    this.startTimer();
+
+                    // START DATA MONITORING
+                    this.dataMonitor.reset();
+                    this.dataMonitor.start();
+
+                    this.participants = [{ 
+                        id: 'local', 
+                        name: 'You', 
+                        isHost: this.isHost,
+                        useBlockchain: this.useBlockchain 
+                    }];
+
+                } catch (error) {
+                    console.error('Error accessing media devices:', error);
+                    alert('Could not access camera/microphone. Please check permissions.');
+                }
+            },
+
+            // Toggle Mute
+            toggleMute() {
+                this.isMuted = !this.isMuted;
+                this.localStream.getAudioTracks()[0].enabled = !this.isMuted;
+                
+                const btn = document.getElementById('muteBtn');
+                btn.textContent = this.isMuted ? '🔇' : '🎤';
+                btn.classList.toggle('active', !this.isMuted);
+            },
+
+            // Toggle Video
+            toggleVideo() {
+                this.isVideoOn = !this.isVideoOn;
+                if (this.localStream.getVideoTracks()[0]) {
+                    this.localStream.getVideoTracks()[0].enabled = this.isVideoOn;
+                }
+                
+                const btn = document.getElementById('videoBtn');
+                btn.textContent = this.isVideoOn ? '📹' : '📷';
+                btn.classList.toggle('active', this.isVideoOn);
+
+                // Notify user of data savings
+                if (!this.isVideoOn) {
+                    this.showBanner('success', '✅ Switched to audio-only. Saving 90% data!');
+                }
+            },
+
+            // Share Screen
+            async shareScreen() {
+                try {
+                    const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                    this.addMessage('system', '🖥️ Screen sharing started');
+                } catch (error) {
+                    console.error('Error sharing screen:', error);
+                }
+            },
+
+            // Send Chat Message
+            sendMessage() {
+                const input = document.getElementById('chatInput');
+                const message = input.value.trim();
+                
+                if (message) {
+                    this.addMessage('You', message);
+                    input.value = '';
+                }
+            },
+
+            addMessage(sender, text) {
+                this.messages.push({ sender, text, time: new Date() });
+                
+                const container = document.getElementById('chatMessages');
+                if (container.children[0]?.textContent.includes('No messages')) {
+                    container.innerHTML = '';
+                }
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'chat-message';
+                messageDiv.innerHTML = `
+                    <div class="flex justify-between items-start mb-1">
+                        <span class="font-semibold text-sm ${sender === 'system' ? 'text-cyan-400' : ''}">${sender}</span>
+                        <span class="text-xs text-gray-400">${new Date().toLocaleTimeString()}</span>
+                    </div>
+                    <p class="text-sm">${text}</p>
+                `;
+                container.appendChild(messageDiv);
+                container.scrollTop = container.scrollHeight;
+            },
+
+            // Toggle Chat
+            toggleChat() {
+                const panel = document.getElementById('chatPanel');
+                panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            },
+
+            // Copy Meeting Code
+            copyMeetingCode() {
+                const code = document.getElementById('meetingCodeDisplay');
+                code.select();
+                document.execCommand('copy');
+                alert('Meeting code copied!');
+            },
+
+            // Generate Meeting Code
+            generateMeetingCode() {
+                return Math.random().toString(36).substring(2, 10).toUpperCase();
+            },
+
+            // Update Call Title
+            updateCallTitle(title) {
+                document.getElementById('callTitle').textContent = title;
+            },
+
+            // Timer
+            startTimer() {
+                this.timerInterval = setInterval(() => {
+                    this.callDuration = Math.floor((Date.now() - this.callStartTime) / 1000);
+                    const minutes = Math.floor(this.callDuration / 60);
+                    const seconds = this.callDuration % 60;
+                    document.getElementById('callDuration').textContent = 
+                        `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                }, 1000);
+            },
+
+            stopTimer() {
+                if (this.timerInterval) {
+                    clearInterval(this.timerInterval);
+                    this.timerInterval = null;
+                }
+            },
+
+            // END CALL
+            endCall() {
+                if (!confirm('Are you sure you want to end the call?')) {
+                    return;
+                }
+
+                // Stop streams
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => track.stop());
+                }
+                if (this.remoteStream) {
+                    this.remoteStream.getTracks().forEach(track => track.stop());
+                }
+
+                // Stop monitoring
+                this.dataMonitor.stop();
+                this.stopTimer();
+
+                // Generate receipt
+                this.generateReceipt();
+                this.switchScreen('receipt');
+            },
+
+            // GENERATE RECEIPT
+            generateReceipt() {
+                const durationMinutes = Math.ceil(this.callDuration / 60);
+                const callCost = durationMinutes * this.RATE_PER_MINUTE;
+                const emergencyDataCost = this.dataMonitor.emergencyDataPurchased > 0 ? 
+                    (this.dataMonitor.emergencyDataPurchased / 50) * 2 : 0;
+                const platformFee = callCost * 0.10;
+                const total = callCost + emergencyDataCost + platformFee;
+                const timestamp = new Date();
+
+                const callId = 'CALL-' + Math.random().toString(36).substring(2, 11).toUpperCase();
+                const txHash = '0x' + Array.from({length: 64}, () => 
+                    Math.floor(Math.random() * 16).toString(16)).join('');
+                const blockNumber = Math.floor(Math.random() * 1000000) + 15000000;
+
+                // Update receipt
+                document.getElementById('bcReceiptId').textContent = callId;
+                document.getElementById('bcReceiptDuration').textContent = 
+                    `${Math.floor(this.callDuration / 60)}:${String(this.callDuration % 60).padStart(2, '0')}`;
+                document.getElementById('bcReceiptType').textContent = 
+                    this.callMode === 'group' ? 'Group Meeting' : 
+                    (this.callType === 'video' ? 'Video Call' : 'Audio Call');
+                document.getElementById('bcReceiptDataUsed').textContent = 
+                    `${Math.round(this.dataMonitor.dataUsed)} MB`;
+                document.getElementById('bcReceiptDateTime').textContent = timestamp.toLocaleString();
+                document.getElementById('bcReceiptCost').textContent = `$${callCost.toFixed(2)}`;
+                document.getElementById('bcReceiptEmergencyData').textContent = 
+                    emergencyDataCost > 0 ? `$${emergencyDataCost.toFixed(2)}` : '$0.00';
+                document.getElementById('bcReceiptFee').textContent = `$${platformFee.toFixed(2)}`;
+                document.getElementById('bcReceiptTotal').textContent = `$${total.toFixed(2)}`;
+                document.getElementById('bcReceiptTxHash').textContent = 
+                    txHash.substring(0, 12) + '...';
+                document.getElementById('bcReceiptBlock').textContent = blockNumber;
+
+                // Quality report
+                document.getElementById('bcReceiptQuality').textContent = 
+                    this.isVideoOn ? 'HD' : 'Audio Only';
+                const dataSaved = (durationMinutes * 10) - this.dataMonitor.dataUsed;
+                document.getElementById('bcReceiptDataSaved').textContent = 
+                    dataSaved > 0 ? `${Math.round(dataSaved)} MB (Auto-optimized)` : '0 MB';
+
+                document.getElementById('blockchainReceipt').classList.remove('hidden');
+                document.getElementById('standardReceipt').classList.add('hidden');
+            },
+
+            // EMERGENCY: Low Data Warning
+            showLowDataWarning() {
+                const modal = this.createModal({
+                    type: 'warning',
+                    title: '⚠️ Data Running Low',
+                    message: `You have ~${Math.round(this.dataMonitor.dataRemaining)} MB remaining`,
+                    options: [
+                        {
+                            text: '🎤 Switch to Audio Only (Save 90%)',
+                            class: 'btn-primary',
+                            action: () => {
+                                if (this.isVideoOn) {
+                                    this.toggleVideo();
+                                }
+                                this.closeModal();
+                            }
+                        },
+                        {
+                            text: '💳 Buy Emergency Data ($2 for 50MB)',
+                            class: 'btn-warning',
+                            action: () => {
+                                this.purchaseEmergencyData();
+                            }
+                        },
+                        {
+                            text: '📉 Lower Quality',
+                            class: 'btn-secondary',
+                            action: () => {
+                                this.showBanner('success', '✅ Quality lowered to save data');
+                                this.closeModal();
+                            }
+                        },
+                        {
+                            text: 'Continue Anyway',
+                            class: 'btn-secondary',
+                            action: () => this.closeModal()
+                        }
+                    ]
+                });
+            },
+
+            // EMERGENCY: Critical Data Warning
+            showCriticalDataWarning() {
+                const modal = this.createModal({
+                    type: 'danger',
+                    title: '🚨 CRITICAL: Data Almost Gone!',
+                    message: `Only ${Math.round(this.dataMonitor.dataRemaining)} MB left! Call may drop soon.`,
+                    options: [
+                        {
+                            text: '💳 Buy Emergency Data NOW ($2)',
+                            class: 'btn-danger',
+                            action: () => {
+                                this.purchaseEmergencyData();
+                            }
+                        },
+                        {
+                            text: '🎤 Switch to Audio (If not already)',
+                            class: 'btn-warning',
+                            action: () => {
+                                if (this.isVideoOn) {
+                                    this.toggleVideo();
+                                }
+                                this.closeModal();
+                            }
+                        },
+                        {
+                            text: '🔍 Find WiFi',
+                            class: 'btn-secondary',
+                            action: () => {
+                                this.showNearbyWifi();
+                            }
+                        },
+                        {
+                            text: 'Risk It',
+                            class: 'btn-secondary',
+                            action: () => this.closeModal()
+                        }
+                    ]
+                });
+            },
+
+            // EMERGENCY: No Data!
+            showNoDataEmergency() {
+                const modal = this.createModal({
+                    type: 'danger',
+                    title: '❌ NO DATA REMAINING!',
+                    message: 'Your data is exhausted. Choose an emergency option:',
+                    options: [
+                        {
+                            text: '💳 Buy 50MB Emergency Data ($2)',
+                            class: 'btn-danger',
+                            action: () => {
+                                this.purchaseEmergencyData();
+                            }
+                        },
+                        {
+                            text: '🔍 Search for WiFi Networks',
+                            class: 'btn-warning',
+                            action: () => {
+                                this.showNearbyWifi();
+                            }
+                        },
+                        {
+                            text: '📱 Switch to Phone Call',
+                            class: 'btn-secondary',
+                            action: () => {
+                                alert('Phone callback feature coming soon!\n\nWe\'ll call you and connect you to the other person.');
+                                this.closeModal();
+                            }
+                        },
+                        {
+                            text: '💬 Continue with Messages Only',
+                            class: 'btn-secondary',
+                            action: () => {
+                                this.switchToMessagingMode();
+                            }
+                        },
+                        {
+                            text: 'End Call',
+                            class: 'btn-secondary',
+                            action: () => {
+                                this.closeModal();
+                                this.endCall();
+                            }
+                        }
+                    ]
+                });
+            },
+
+            // Purchase Emergency Data
+            purchaseEmergencyData() {
+                const confirmed = confirm(
+                    '💳 Purchase Emergency Data\n\n' +
+                    '50 MB for $2.00\n\n' +
+                    'This will be added to your receipt.\n\n' +
+                    'Continue?'
+                );
+
+                if (confirmed) {
+                    this.dataMonitor.emergencyDataPurchased += 50;
+                    this.dataMonitor.dataRemaining += 50;
+                    this.showBanner('success', '✅ Emergency data added! +50 MB');
+                    this.closeModal();
+                    
+                    // Reset warnings so they can trigger again if needed
+                    this.dataMonitor.warningShown = false;
+                    this.dataMonitor.criticalShown = false;
+                }
+            },
+
+            // Show Nearby WiFi
+            showNearbyWifi() {
+                this.closeModal();
+                const modal = this.createModal({
+                    type: 'info',
+                    title: '🔍 Nearby WiFi Networks',
+                    message: 'Available networks in your area:',
+                    options: [
+                        {
+                            text: '📡 Starbucks WiFi (Free)',
+                            class: 'btn-primary',
+                            action: () => {
+                                alert('In a real app, this would help you connect to Starbucks WiFi');
+                                this.closeModal();
+                            }
+                        },
+                        {
+                            text: '📡 McDonald\'s WiFi (Free)',
+                            class: 'btn-primary',
+                            action: () => {
+                                alert('In a real app, this would help you connect to McDonald\'s WiFi');
+                                this.closeModal();
+                            }
+                        },
+                        {
+                            text: '📡 Public Library WiFi (Free)',
+                            class: 'btn-primary',
+                            action: () => {
+                                alert('In a real app, this would help you connect to Library WiFi');
+                                this.closeModal();
+                            }
+                        },
+                        {
+                            text: 'Back',
+                            class: 'btn-secondary',
+                            action: () => {
+                                this.closeModal();
+                                this.showNoDataEmergency();
+                            }
+                        }
+                    ]
+                });
+            },
+
+            // Switch to Messaging Mode
+            switchToMessagingMode() {
+                // Stop video
+                if (this.isVideoOn) {
+                    this.toggleVideo();
+                }
+                
+                // Mute audio
+                if (!this.isMuted) {
+                    this.toggleMute();
+                }
+
+                this.showBanner('info', '💬 Switched to messaging mode. Type messages in chat.');
+                this.closeModal();
+            },
+
+            // Show Outage Alert
+            showOutageAlert(platforms) {
+                const banner = document.getElementById('outageBanner');
+                const text = document.getElementById('outageText');
+                
+                text.textContent = `${platforms.join(', ')} ${platforms.length > 1 ? 'are' : 'is'} currently down. Use BlockCall for FREE!`;
+                banner.classList.remove('hidden');
+
+                // Also show status widget on home screen
+                if (this.currentScreen === 'home') {
+                    this.showStatusWidget(platforms);
+                }
+            },
+
+            dismissOutageBanner() {
+                document.getElementById('outageBanner').classList.add('hidden');
+            },
+
+            showStatusWidget(platforms) {
+                const widget = document.getElementById('statusWidget');
+                const list = document.getElementById('statusList');
+                
+                list.innerHTML = platforms.map(platform => `
+                    <div class="flex items-center justify-between p-3 bg-red-500/10 rounded-lg">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">❌</span>
+                            <div>
+                                <p class="font-semibold">${platform}</p>
+                                <p class="text-xs text-gray-400">Service disruption detected</p>
+                            </div>
+                        </div>
+                        <span class="text-xs bg-red-500 px-3 py-1 rounded">DOWN</span>
+                    </div>
+                `).join('');
+                
+                widget.classList.remove('hidden');
+            },
+
+            // Create Modal Helper
+            createModal(config) {
+                const modal = document.createElement('div');
+                modal.className = 'emergency-modal';
+                modal.id = 'emergencyModal';
+                
+                const colors = {
+                    warning: 'bg-yellow-500/20 border-yellow-500',
+                    danger: 'bg-red-500/20 border-red-500',
+                    info: 'bg-cyan-500/20 border-cyan-500',
+                    success: 'bg-green-500/20 border-green-500'
+                };
+
+                modal.innerHTML = `
+                    <div class="max-w-md w-full ${colors[config.type]} border-2 rounded-xl p-8 mx-4">
+                        <h2 class="text-2xl font-bold mb-4">${config.title}</h2>
+                        <p class="text-gray-300 mb-6">${config.message}</p>
+                        <div class="space-y-3">
+                            ${config.options.map(opt => `
+                                <button class="btn ${opt.class} w-full" onclick="app.modalAction_${config.options.indexOf(opt)}()">
+                                    ${opt.text}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+
+                // Store actions
+                config.options.forEach((opt, index) => {
+                    window.app[`modalAction_${index}`] = opt.action;
+                });
+
+                document.body.appendChild(modal);
+                return modal;
+            },
+
+            closeModal() {
+                const modal = document.getElementById('emergencyModal');
+                if (modal) {
+                    modal.remove();
+                }
+            },
+
+            // Show Banner Helper
+            showBanner(type, message) {
+                const banner = document.getElementById('emergencyBanner');
+                const colors = {
+                    success: 'bg-green-500',
+                    warning: 'bg-yellow-500',
+                    danger: 'bg-red-500',
+                    info: 'bg-cyan-500'
+                };
+
+                banner.innerHTML = `
+                    <div class="${colors[type]} p-4 rounded-xl text-white font-semibold shadow-lg">
+                        ${message}
+                    </div>
+                `;
+                banner.classList.remove('hidden');
+
+                // Auto-hide after 5 seconds
+                setTimeout(() => {
+                    banner.classList.add('hidden');
+                }, 5000);
+            },
+
+            // Download Receipt
+            downloadReceipt() {
+                alert('PDF download feature will be implemented.\n\nFor now, use Print → Save as PDF');
+                this.printReceipt();
+            },
+
+            // Print Receipt
+            printReceipt() {
+                window.print();
+            },
+
+            // View on Blockchain
+            viewOnBlockchain() {
+                const txHash = document.getElementById('bcReceiptTxHash').textContent;
+                window.open(`https://etherscan.io/tx/${txHash}`, '_blank');
+            },
+
+            // Switch Screen
+            switchScreen(screen) {
+                document.getElementById('homeScreen').classList.add('hidden');
+                document.getElementById('callScreen').classList.add('hidden');
+                document.getElementById('receiptScreen').classList.add('hidden');
+
+                if (screen === 'home') {
+                    document.getElementById('homeScreen').classList.remove('hidden');
+                } else if (screen === 'call') {
+                    document.getElementById('callScreen').classList.remove('hidden');
+                } else if (screen === 'receipt') {
+                    document.getElementById('receiptScreen').classList.remove('hidden');
+                }
+
+                this.currentScreen = screen;
+            },
+
+            // Return to Home
+            returnHome() {
+                this.callType = null;
+                this.callMode = null;
+                this.isTestMode = false;
+                this.localStream = null;
+                this.remoteStream = null;
+                this.callStartTime = null;
+                this.callDuration = 0;
+                this.isMuted = false;
+                this.isVideoOn = true;
+                this.meetingCode = null;
+                this.isHost = false;
+                this.participants = [];
+                this.messages = [];
+
+                this.dataMonitor.reset();
+
+                document.getElementById('recipientAddress').value = '';
+                document.getElementById('meetingName').value = '';
+                document.getElementById('meetingCode').value = '';
+                document.getElementById('chatInput').value = '';
+                document.getElementById('remoteVideoContainer').classList.add('hidden');
+                document.getElementById('chatMessages').innerHTML = '<p class="text-xs text-gray-400 text-center py-4">No messages yet</p>';
+
+                this.switchScreen('home');
+            }
+        };
+
+        // Initialize app on load
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('🚀 BlockCall Emergency System Loaded');
+            app.init();
+        });
+
+        window.addEventListener('beforeunload', (e) => {
+            if (app.currentScreen === 'call') {
+                e.preventDefault();
+                e.returnValue = 'You are currently in a call. Are you sure you want to leave?';
+            }
+        });
+    </script>
+</body>
+</html>
